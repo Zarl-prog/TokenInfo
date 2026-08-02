@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  clerkId   String   @unique
+  plan      String   @default("free")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizations OrgMember[]
+  apiKeys       ApiKey[]
+  promptLogs    PromptLog[]
+}
+
+model Organization {
+  id           String   @id @default(cuid())
+  name         String
+  plan         String   @default("free")
+  tokenBudget  Int      @default(1000000)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members  OrgMember[]
+  apiKeys  ApiKey[]
+  budgets  Budget[]
+  promptLogs PromptLog[]
+}
+
+model OrgMember {
+  id     String @id @default(cuid())
+  role   String @default("member")
+
+  userId         String
+  organizationId String
+
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([userId, organizationId])
+}
+
+model ApiKey {
+  id           String   @id @default(cuid())
+  provider     String
+  encryptedKey String
+  createdAt    DateTime @default(now())
+
+  userId         String?
+  organizationId String?
+
+  user         User?         @relation(fields: [userId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+}
+
+model PromptLog {
+  id         String   @id @default(cuid())
+  promptHash String
+  score      Int
+  tokensIn   Int
+  tokensOut  Int
+  cost       Float
+  createdAt  DateTime @default(now())
+
+  userId         String?
+  organizationId String?
+
+  user         User?         @relation(fields: [userId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  labels       Label[]
+}
+
+model Label {
+  id   String @id @default(cuid())
+  name String
+
+  promptLogId String
+  promptLog   PromptLog @relation(fields: [promptLogId], references: [id])
+}
+
+model Budget {
+  id             String @id @default(cuid())
+  monthlyLimit   Int
+  alertThreshold Int
+  currentUsage   Int    @default(0)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}

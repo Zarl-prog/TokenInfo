@@ -252,17 +252,6 @@ daily_summaries        → date, userId, orgId, totalTokens, totalCost, avgScore
 
 ---
 
-## 💰 Monetization
-
-| Plan | Target | Price (est.) |
-|---|---|---|
-| **Free** | Individuals | $0 — 100 calls/day, caveman trim only |
-| **Pro** | Power users | $19/mo — unlimited calls, AI rewrite pass |
-| **Team** | Small teams | $49/mo per 5 seats, basic RBAC |
-| **Enterprise** | Companies | Custom — full RBAC, SSO, budget controls, SLA |
-
----
-
 ## ⚠️ Key Risks & Mitigations
 
 | Risk | Mitigation |

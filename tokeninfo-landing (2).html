@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenInfo — Stop burning tokens on wasted prompts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --cream:#F5F0E8;
+    --cream-panel: rgba(245,240,232,0.97);
+    --ink:#1A1A1A;
+    --ink-soft: rgba(26,26,26,0.62);
+    --ink-faint: rgba(26,26,26,0.38);
+    --wine:#4F46E5;
+    --wine-soft: rgba(107,31,42,0.08);
+    --line: rgba(26,26,26,0.14);
+    --line-strong: rgba(26,26,26,0.28);
+    --unit: 8px;
+    --container: 1160px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:transparent;
+    color:var(--ink);
+    font-family:'Inter', sans-serif;
+    font-size:16px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  ::selection{background:var(--wine); color:var(--cream);}
+
+  /* focus states */
+  a:focus-visible, button:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--wine);
+    outline-offset:3px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important;}
+  }
+
+  h1,h2,h3,h4{font-family:'Fraunces', serif; font-weight:600; letter-spacing:-0.01em; color:var(--ink);}
+
+  .container{max-width:var(--container); margin:0 auto; padding:0 32px;}
+  @media (max-width:640px){ .container{padding:0 20px;} }
+
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:10px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--wine); font-weight:500;
+  }
+  .eyebrow::before{
+    content:''; width:7px; height:7px; background:var(--wine); display:inline-block; flex-shrink:0;
+  }
+
+  /* ---------- ambient background ---------- */
+  .ambient{
+    position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background-color:var(--cream);
+  }
+  .ambient svg{
+    position:absolute; inset:-10% -10%; width:120%; height:120%;
+    opacity:0.07;
+  }
+  .ambient .grid-line{ stroke:var(--wine); stroke-width:1; }
+  .ambient .drift-a{ animation: drift1 18s linear infinite; }
+  .ambient .drift-b{ animation: drift2 24s linear infinite; }
+  .ambient .dots{ animation: driftdots 20s linear infinite; }
+  @keyframes drift1{
+    0%{ transform:translate(0,0); }
+    50%{ transform:translate(24px,-18px); }
+    100%{ transform:translate(0,0); }
+  }
+  @keyframes drift2{
+    0%{ transform:translate(0,0); }
+    50%{ transform:translate(-20px,16px); }
+    100%{ transform:translate(0,0); }
+  }
+  @keyframes driftdots{
+    0%{ transform:translate(0,0); }
+    100%{ transform:translate(-40px,-40px); }
+  }
+
+  /* ---------- nav ---------- */
+  header.nav{
+    position:sticky; top:0; z-index:100;
+    background:var(--cream-panel);
+    backdrop-filter:blur(6px);
+    border-bottom:1px solid transparent;
+    transition:border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+  header.nav.scrolled{
+    border-bottom-color:var(--line);
+    box-shadow:0 1px 0 rgba(26,26,26,0.04);
+  }
+  .nav-inner{
+    display:flex; align-items:center; justify-content:space-between;
+    height:72px;
+  }
+  .logo{
+    display:flex; align-items:center; gap:9px;
+    font-family:'Fraunces', serif; font-weight:600; font-size:19px;
+    color:var(--ink); text-decoration:none; letter-spacing:-0.01em;
+  }
+  .logo .mark{ width:9px; height:9px; background:var(--wine); display:inline-block; }
+  .nav-links{ display:flex; align-items:center; gap:36px; list-style:none; }
+  .nav-links a{
+    color:var(--ink-soft); text-decoration:none; font-size:14.5px; font-weight:500;
+    transition:color 0.15s ease;
+  }
+  .nav-links a:hover{ color:var(--ink); }
+  .nav-right{ display:flex; align-items:center; gap:24px; }
+  .btn{
+    font-family:'Inter', sans-serif; font-weight:600; font-size:14px;
+    border:1px solid var(--ink); background:transparent; color:var(--ink);
+    padding:11px 22px; cursor:pointer; text-decoration:none; display:inline-flex;
+    align-items:center; justify-content:center; gap:8px;
+    transition:all 0.15s ease; letter-spacing:0.01em;
+  }
+  .btn:hover{ background:var(--ink); color:var(--cream); }
+  .btn-primary{
+    background:var(--wine); border-color:var(--wine); color:var(--cream);
+  }
+  .btn-primary:hover{ background:#4338CA; border-color:#4338CA; }
+  .btn-block{ width:100%; }
+  .nav-toggle{ display:none; }
+  @media (max-width:860px){
+    .nav-links{ display:none; }
+    .nav-toggle{ display:block; background:none; border:none; cursor:pointer; }
+    .nav-right .btn:not(.btn-primary){ display:none; }
+  }
+
+  /* ---------- hero ---------- */
+  .hero{ padding:96px 0 64px; }
+  .hero-grid{
+    display:grid; grid-template-columns:1.05fr 0.95fr; gap:24px; align-items:end;
+  }
+  .hero-copy{ padding-right:20px; }
+  .hero h1{
+    font-size:clamp(40px, 5.4vw, 68px);
+    line-height:1.02; letter-spacing:-0.025em; margin:22px 0 24px;
+  }
+  .hero h1 .hl{
+    color:var(--wine); font-style:italic; position:relative;
+    text-decoration: underline; text-decoration-color: var(--wine);
+    text-decoration-thickness: 2px; text-underline-offset: 6px;
+  }
+  .hero p.sub{
+    font-size:17px; color:var(--ink-soft); max-width:440px; margin-bottom:36px;
+    line-height:1.6;
+  }
+  .hero-ctas{ display:flex; gap:14px; margin-bottom:44px; flex-wrap:wrap; }
+  .hero-note{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-faint);
+    letter-spacing:0.02em;
+  }
+  .hero-visual{
+    border:1px solid var(--line); background:var(--cream-panel);
+    padding:24px; position:relative;
+    margin-right:-32px;
+  }
+  @media (max-width:1160px){ .hero-visual{ margin-right:0; } }
+  .stat-row{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
+  .stat-label{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px; }
+  .stat-value{ font-family:'Fraunces', serif; font-size:34px; font-weight:600; color:var(--ink); }
+  .stat-delta{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; background:var(--wine-soft); color:var(--wine);
+    padding:4px 8px; font-weight:500;
+  }
+  .chart-wrap{ height:180px; border-top:1px solid var(--line); padding-top:16px; }
+  .flag-mini{
+    display:flex; justify-content:space-between; align-items:center; margin-top:16px;
+    border-top:1px solid var(--line); padding-top:14px;
+    font-size:13px;
+  }
+  .flag-mini span.tag{ color:var(--ink-soft); }
+  .flag-mini span.val{ font-family:'IBM Plex Mono', monospace; color:var(--wine); font-weight:500; }
+
+  @media (max-width:860px){
+    .hero-grid{ grid-template-columns:1fr; }
+    .hero-copy{ padding-right:0; }
+  }
+
+  /* ---------- social proof ---------- */
+  .proof{
+    border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    padding:28px 0; margin-top:16px;
+  }
+  .proof-inner{
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px;
+  }
+  .proof-stat{ font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--ink-soft); }
+  .proof-stat b{ color:var(--wine); font-weight:600; }
+  .proof-logos{ display:flex; gap:32px; flex-wrap:wrap; }
+  .proof-logos span{
+    font-family:'Fraunces', serif; font-size:15px; color:var(--ink-faint); font-weight:500;
+  }
+
+  /* ---------- sections generic ---------- */
+  section{ padding:96px 0; }
+  .section-head{ margin-bottom:52px; max-width:640px; }
+  .section-head .eyebrow{ margin-bottom:16px; }
+  .section-head h2{ font-size:clamp(28px,3.6vw,42px); letter-spacing:-0.02em; margin-bottom:14px; }
+  .section-head p{ color:var(--ink-soft); font-size:16px; line-height:1.65; }
+
+  .reveal{ opacity:0; transform:translateY(18px); transition:opacity 0.6s ease, transform 0.6s ease; }
+  .reveal.in{ opacity:1; transform:translateY(0); }
+
+  /* ---------- features ---------- */
+  .feature-grid{ display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--line); border-left:1px solid var(--line); }
+  .feature-card{
+    border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+    padding:36px 28px; transition:background 0.2s ease;
+  }
+  .feature-card:hover{ background:var(--wine-soft); }
+  .feature-mark{ width:9px; height:9px; background:var(--wine); margin-bottom:22px; }
+  .feature-card h3{ font-size:19px; margin-bottom:10px; }
+  .feature-card p{ color:var(--ink-soft); font-size:14.5px; line-height:1.6; }
+  @media (max-width:760px){ .feature-grid{ grid-template-columns:1fr; } }
+
+  /* ---------- flagged prompts ---------- */
+  .prompt-list{ border-top:1px solid var(--line); }
+  .prompt-row{ border-bottom:1px solid var(--line); }
+  .prompt-row-head{
+    display:grid; grid-template-columns:32px 1fr 140px 110px 20px; gap:16px; align-items:center;
+    padding:18px 4px; cursor:pointer; background:none; border:none; width:100%; text-align:left; font-family:inherit;
+  }
+  .prompt-row-head:hover{ background:var(--wine-soft); }
+  .prompt-idx{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-faint); }
+  .prompt-name{ font-size:15px; font-weight:500; color:var(--ink); }
+  .prompt-tag{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--wine); background:var(--wine-soft); padding:4px 8px; width:fit-content;
+  }
+  .prompt-save{ font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--wine); font-weight:500; text-align:right; }
+  .prompt-chevron{ transition:transform 0.2s ease; color:var(--ink-faint); }
+  .prompt-row.open .prompt-chevron{ transform:rotate(45deg); }
+  .prompt-detail{
+    max-height:0; overflow:hidden; transition:max-height 0.3s ease;
+  }
+  .prompt-row.open .prompt-detail{ max-height:200px; }
+  .prompt-detail-inner{
+    padding:0 4px 24px 48px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px;
+  }
+  .detail-block .stat-label{ margin-bottom:4px; }
+  .detail-block .val{ font-family:'IBM Plex Mono', monospace; font-size:15px; color:var(--ink); }
+  @media (max-width:700px){
+    .prompt-row-head{ grid-template-columns:24px 1fr 84px 16px; }
+    .prompt-tag{ display:none; }
+    .prompt-detail-inner{ grid-template-columns:1fr; gap:12px; padding-left:4px; }
+  }
+
+  /* ---------- process ---------- */
+  .process-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:32px; }
+  .process-step{ border-top:2px solid var(--ink); padding-top:20px; }
+  .process-num{
+    font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--wine); font-weight:500;
+    margin-bottom:18px; display:block;
+  }
+  .process-step h3{ font-size:19px; margin-bottom:10px; }
+  .process-step p{ color:var(--ink-soft); font-size:14.5px; line-height:1.6; }
+  @media (max-width:760px){ .process-grid{ grid-template-columns:1fr; } }
+
+  /* ---------- dashboard preview ---------- */
+  .dash-panel{ border:1px solid var(--line); background:var(--cream-panel); }
+  .dash-head{ display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:12px; }
+  .dash-head h3{ font-size:16px; }
+  .legend{ display:flex; gap:16px; flex-wrap:wrap; }
+  .legend-item{
+    display:flex; align-items:center; gap:7px; font-family:'IBM Plex Mono', monospace; font-size:12px;
+    cursor:pointer; color:var(--ink-soft); background:none; border:none; padding:4px 0;
+    transition:opacity 0.2s ease;
+  }
+  .legend-item.off{ opacity:0.35; text-decoration:line-through; }
+  .legend-dot{ width:8px; height:8px; display:inline-block; }
+  .dash-body{ padding:24px; height:340px; }
+  .dash-foot{ display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--line); }
+  .dash-foot div{ padding:18px 24px; border-right:1px solid var(--line); }
+  .dash-foot div:last-child{ border-right:none; }
+  @media (max-width:700px){ .dash-foot{ grid-template-columns:1fr; } .dash-foot div{ border-right:none; border-bottom:1px solid var(--line); } }
+
+  /* ---------- pricing ---------- */
+  .pricing-toggle{
+    display:inline-flex; align-items:center; gap:14px; margin-bottom:52px;
+    font-family:'IBM Plex Mono', monospace; font-size:13px;
+  }
+  .switch{
+    width:46px; height:24px; border:1px solid var(--ink); position:relative; cursor:pointer; background:transparent; padding:0;
+  }
+  .switch::after{
+    content:''; position:absolute; top:2px; left:2px; width:18px; height:18px; background:var(--ink);
+    transition:transform 0.2s ease;
+  }
+  .switch.on::after{ transform:translateX(20px); background:var(--wine); }
+  .toggle-label{ color:var(--ink-soft); }
+  .toggle-label.active{ color:var(--ink); font-weight:600; }
+  .save-badge{ color:var(--wine); }
+
+  .pricing-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:0; align-items:center; }
+  .price-card{
+    border:1px solid var(--line); padding:36px 28px; position:relative; background:var(--cream-panel);
+  }
+  .price-card.featured{
+    border:1px solid var(--wine); background:var(--ink); color:var(--cream);
+    padding:48px 28px; transform:scale(1.06); z-index:2; box-shadow:0 18px 40px rgba(26,26,26,0.16);
+  }
+  .price-card.featured .price-tier, .price-card.featured h4{ color:var(--cream); }
+  .price-card.featured .price-desc{ color:rgba(245,240,232,0.65); }
+  .price-card.featured .feat-list li{ color:rgba(245,240,232,0.85); }
+  .price-card.featured .feat-list li::before{ color:var(--cream); }
+  .featured-tag{
+    position:absolute; top:-13px; left:28px; background:var(--wine); color:var(--cream);
+    font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
+    padding:5px 10px; font-weight:500;
+  }
+  .price-tier{ font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:14px; }
+  .price-card h4{ font-family:'Fraunces', serif; font-size:38px; margin-bottom:4px; }
+  .price-card h4 sup{ font-size:16px; font-weight:400; }
+  .price-period{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-faint); margin-bottom:20px; display:block; }
+  .price-desc{ color:var(--ink-soft); font-size:14px; margin-bottom:24px; min-height:36px; }
+  .feat-list{ list-style:none; margin-bottom:28px; }
+  .feat-list li{
+    font-size:14px; color:var(--ink-soft); padding:9px 0; border-top:1px solid var(--line);
+    display:flex; gap:10px; align-items:flex-start;
+  }
+  .price-card.featured .feat-list li{ border-top-color:rgba(245,240,232,0.18); }
+  .feat-list li::before{ content:'—'; color:var(--wine); flex-shrink:0; }
+  @media (max-width:900px){
+    .pricing-grid{ grid-template-columns:1fr; gap:24px; }
+    .price-card.featured{ transform:none; }
+  }
+
+  /* ---------- testimonial ---------- */
+  .testi-wrap{ text-align:center; max-width:760px; margin:0 auto; }
+  .testi-quote{
+    font-family:'Fraunces', serif; font-style:italic; font-size:clamp(22px,3vw,30px);
+    line-height:1.4; color:var(--ink); margin-bottom:28px;
+  }
+  .testi-mark{ font-size:44px; color:var(--wine); font-family:'Fraunces', serif; display:block; margin-bottom:8px; }
+  .testi-author{ font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--ink-soft); }
+  .testi-dots{ display:flex; justify-content:center; gap:10px; margin-top:32px; }
+  .testi-dots button{
+    width:7px; height:7px; border-radius:50%; border:none; background:var(--line-strong); cursor:pointer; padding:0;
+  }
+  .testi-dots button.active{ background:var(--wine); width:20px; border-radius:4px; }
+
+  /* ---------- final cta ---------- */
+  .cta-banner{
+    background:var(--ink); color:var(--cream); padding:88px 0; text-align:center; position:relative;
+  }
+  .cta-banner .mark-row{ display:flex; justify-content:center; margin-bottom:24px; }
+  .cta-banner .mark-row span{ width:10px; height:10px; background:var(--wine); display:inline-block; }
+  .cta-banner h2{ color:var(--cream); font-size:clamp(30px,4vw,46px); margin-bottom:16px; letter-spacing:-0.02em; }
+  .cta-banner p{ color:rgba(245,240,232,0.66); margin-bottom:36px; font-size:16px; }
+  .cta-form{ display:flex; gap:0; max-width:440px; margin:0 auto; border:1px solid rgba(245,240,232,0.35); }
+  .cta-form input{
+    flex:1; background:transparent; border:none; color:var(--cream); padding:15px 18px; font-family:'Inter'; font-size:14.5px;
+  }
+  .cta-form input::placeholder{ color:rgba(245,240,232,0.45); }
+  .cta-form input:focus{ outline:none; }
+  .cta-form button{
+    background:var(--wine); color:var(--cream); border:none; padding:0 26px; font-weight:600; cursor:pointer; font-family:'Inter'; font-size:14px;
+    transition:background 0.15s ease;
+  }
+  .cta-form button:hover{ background:#4338CA; }
+  .cta-error{ color:#A5B4FC; font-size:13px; margin-top:10px; font-family:'IBM Plex Mono', monospace; }
+  .cta-success{ font-family:'IBM Plex Mono', monospace; color:var(--cream); font-size:14px; margin-top:6px; }
+  .cta-success .mark{ color:var(--wine); }
+
+  /* ---------- footer ---------- */
+  footer{ padding:56px 0 40px; border-top:1px solid var(--line); }
+  .footer-top{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:40px; margin-bottom:48px; }
+  .footer-cols{ display:flex; gap:64px; flex-wrap:wrap; }
+  .footer-col h5{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.1em;
+    color:var(--ink-faint); margin-bottom:16px;
+  }
+  .footer-col a{ display:block; color:var(--ink-soft); text-decoration:none; font-size:14px; margin-bottom:11px; }
+  .footer-col a:hover{ color:var(--wine); }
+  .footer-bottom{ display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; padding-top:24px; border-top:1px solid var(--line); }
+  .footer-tag{ font-size:13px; color:var(--ink-faint); }
+  .footer-social{ display:flex; gap:18px; }
+  .footer-social a{ color:var(--ink-soft); text-decoration:none; font-size:13px; font-family:'IBM Plex Mono', monospace; }
+  .footer-social a:hover{ color:var(--wine); }
+
+  /* ---------- modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(26,26,26,0.5); z-index:200;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    opacity:0; pointer-events:none; transition:opacity 0.2s ease;
+  }
+  .modal-overlay.show{ opacity:1; pointer-events:auto; }
+  .modal{
+    background:var(--cream); border:1px solid var(--line); max-width:420px; width:100%; padding:40px 32px;
+    position:relative; transform:translateY(12px); transition:transform 0.2s ease;
+  }
+  .modal-overlay.show .modal{ transform:translateY(0); }
+  .modal-close{
+    position:absolute; top:18px; right:18px; background:none; border:none; cursor:pointer; font-size:20px; color:var(--ink-faint); line-height:1;
+  }
+  .modal h3{ font-size:24px; margin:14px 0 8px; }
+  .modal p.desc{ color:var(--ink-soft); font-size:14px; margin-bottom:26px; }
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-family:'IBM Plex Mono', monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-faint); margin-bottom:8px; }
+  .field input{
+    width:100%; border:1px solid var(--line-strong); background:transparent; padding:12px 14px; font-family:'Inter'; font-size:14.5px; color:var(--ink);
+  }
+  .field input:focus{ outline:none; border-color:var(--wine); }
+  .field input.error{ border-color:var(--wine); }
+  .field-error{ color:var(--wine); font-size:12.5px; margin-top:6px; display:none; font-family:'IBM Plex Mono', monospace; }
+  .field-error.show{ display:block; }
+  .modal-success{ display:none; text-align:center; padding:20px 0; }
+  .modal-success.show{ display:block; }
+  .modal-success .mark{ width:10px; height:10px; background:var(--wine); margin:0 auto 18px; }
+  .modal-form.hide{ display:none; }
+</style>
+</head>
+<body>
+
+<div class="ambient" aria-hidden="true">
+  <svg class="drift-a" viewBox="0 0 800 800" preserveAspectRatio="none">
+    <line class="grid-line" x1="0" y1="80" x2="800" y2="80"/>
+    <line class="grid-line" x1="0" y1="260" x2="800" y2="260"/>
+    <line class="grid-line" x1="0" y1="480" x2="800" y2="480"/>
+    <line class="grid-line" x1="0" y1="700" x2="800" y2="700"/>
+    <line class="grid-line" x1="120" y1="0" x2="120" y2="800"/>
+    <line class="grid-line" x1="420" y1="0" x2="420" y2="800"/>
+    <line class="grid-line" x1="680" y1="0" x2="680" y2="800"/>
+  </svg>
+  <svg class="drift-b" viewBox="0 0 800 800" preserveAspectRatio="none">
+    <path class="grid-line" d="M0,120 L200,120 L200,340 L800,340" fill="none"/>
+    <path class="grid-line" d="M0,600 L340,600 L340,180 L800,180" fill="none"/>
+    <circle class="grid-line" cx="200" cy="120" r="3" fill="none"/>
+    <circle class="grid-line" cx="340" cy="600" r="3" fill="none"/>
+  </svg>
+  <svg class="dots" viewBox="0 0 800 800" preserveAspectRatio="none">
+    <defs>
+      <pattern id="dotgrid" width="40" height="40" patternUnits="userSpaceOnUse">
+        <circle cx="2" cy="2" r="1.4" fill="#4F46E5"/>
+      </pattern>
+    </defs>
+    <rect width="800" height="800" fill="url(#dotgrid)"/>
+  </svg>
+</div>
+
+<header class="nav" id="siteNav">
+  <div class="container nav-inner">
+    <a href="#top" class="logo"><span class="mark"></span>TokenInfo</a>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="#features">Product</a></li>
+        <li><a href="#dashboard">Demo</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#faq">Company</a></li>
+      </ul>
+    </nav>
+    <div class="nav-right">
+      <a href="#dashboard" class="btn">View Demo</a>
+      <button class="btn btn-primary" id="navCta">Start Free</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow">AI Token Optimization</span>
+        <h1>Stop burning tokens on<br><span class="hl">wasted</span> prompts.</h1>
+        <p class="sub">TokenInfo watches every API call across your deployed models, flags redundant and oversized prompts, and shows engineering teams exactly where to cut — without touching output quality.</p>
+        <div class="hero-ctas">
+          <button class="btn btn-primary" id="heroStart">Start Free</button>
+          <a href="#dashboard" class="btn">View Demo</a>
+        </div>
+        <span class="hero-note">NO CREDIT CARD REQUIRED — LIVE IN UNDER 10 MINUTES</span>
+      </div>
+      <div class="hero-visual">
+        <div class="stat-row">
+          <div>
+            <div class="stat-label">Total Savings (30d)</div>
+            <div class="stat-value">$1,420.50</div>
+          </div>
+          <div class="stat-delta">+75%</div>
+        </div>
+        <div class="chart-wrap"><canvas id="heroChart"></canvas></div>
+        <div class="flag-mini">
+          <span class="tag">Flagged: Redundant context prompts</span>
+          <span class="val">−42%</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOCIAL PROOF -->
+  <div class="proof">
+    <div class="container proof-inner">
+      <div class="proof-stat">Trusted by engineering teams shipping on <b>GPT-4o</b>, <b>Claude 3.5</b> &amp; <b>Gemini</b></div>
+      <div class="proof-logos">
+        <span>NORTHBEAM</span><span>LEDGER&amp;CO</span><span>ARC INFRA</span><span>VELOCITY AI</span><span>HALCYON</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">What it does</span>
+        <h2>One dashboard for every token you spend.</h2>
+        <p>TokenInfo sits between your app and your LLM provider, reading usage without touching your data, so you always know where the spend is going.</p>
+      </div>
+      <div class="feature-grid reveal">
+        <div class="feature-card">
+          <div class="feature-mark"></div>
+          <h3>Real-time tracking</h3>
+          <p>Live monitoring of every API call across all your deployed LLM models, in one single source of truth.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-mark"></div>
+          <h3>Wasteful prompt detection</h3>
+          <p>Proprietary analysis flags redundant, oversized, or repetitive prompts before they inflate your bill.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-mark"></div>
+          <h3>Efficiency analytics</h3>
+          <p>Deep insights into per-model, per-team, and per-feature ROI, so you know exactly where to optimize.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLAGGED PROMPTS -->
+  <section id="prompts">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Flagged this week</span>
+        <h2>Prompts costing you more than they should.</h2>
+        <p>Click any row to see the full breakdown — what triggered the flag, and what it would save if fixed.</p>
+      </div>
+      <div class="prompt-list reveal" id="promptList"></div>
+    </div>
+  </section>
+
+  <!-- PROCESS -->
+  <section id="process">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">01–03 — How it works</span>
+        <h2>Three steps, in order, start to finish.</h2>
+        <p>Each step depends on the one before it — connect first, so there's data to analyze; analyze first, so there's something to optimize.</p>
+      </div>
+      <div class="process-grid">
+        <div class="process-step reveal">
+          <span class="process-num">01</span>
+          <h3>Connect API</h3>
+          <p>Securely link your keys via our encrypted gateway. No code changes to your existing integration.</p>
+        </div>
+        <div class="process-step reveal">
+          <span class="process-num">02</span>
+          <h3>Analyze usage</h3>
+          <p>Get instant visibility across every provider, model, and team — down to the individual prompt.</p>
+        </div>
+        <div class="process-step reveal">
+          <span class="process-num">03</span>
+          <h3>Optimize &amp; save</h3>
+          <p>Apply automated prompt fixes and cut waste, with savings tracked back to the dollar.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD PREVIEW -->
+  <section id="dashboard">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Built for engineering leads</span>
+        <h2>Precise oversight of your AI infrastructure.</h2>
+        <p>Hover the chart for exact figures. Toggle a model off in the legend to isolate the rest.</p>
+      </div>
+      <div class="dash-panel reveal">
+        <div class="dash-head">
+          <h3>Usage by model — 30 days</h3>
+          <div class="legend" id="dashLegend"></div>
+        </div>
+        <div class="dash-body"><canvas id="dashChart"></canvas></div>
+        <div class="dash-foot">
+          <div>
+            <div class="stat-label">GPT-4o</div>
+            <div class="val" style="font-family:'IBM Plex Mono',monospace; font-size:15px;">1.4M tokens</div>
+          </div>
+          <div>
+            <div class="stat-label">Claude 3.5 Sonnet</div>
+            <div class="val" style="font-family:'IBM Plex Mono',monospace; font-size:15px;">1.1M tokens</div>
+          </div>
+          <div>
+            <div class="stat-label">Flagged waste</div>
+            <div class="val" style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:var(--wine);">210K tokens</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="eyebrow">Investment plans</span>
+        <h2>Priced for teams who measure everything.</h2>
+        <p>Switch to annual billing and save 15% on every tier.</p>
+      </div>
+      <div class="pricing-toggle reveal">
+        <span class="toggle-label active" id="labelMonthly">Monthly</span>
+        <button class="switch" id="billToggle" aria-label="Toggle annual billing" aria-pressed="false"></button>
+        <span class="toggle-label" id="labelAnnual">Annual</span>
+        <span class="save-badge">— save 15%</span>
+      </div>
+      <div class="pricing-grid reveal">
+        <div class="price-card">
+          <div class="price-tier">Standard</div>
+          <h4>$<span class="price-num" data-monthly="0" data-annual="0">0</span></h4>
+          <span class="price-period">for individuals</span>
+          <p class="price-desc">Track your own usage, no team features.</p>
+          <ul class="feat-list">
+            <li>Basic tracking</li>
+            <li>1 model integration</li>
+            <li>48h data retention</li>
+          </ul>
+          <button class="btn btn-block pricing-cta">Choose Standard</button>
+        </div>
+        <div class="price-card featured">
+          <span class="featured-tag">Recommended</span>
+          <div class="price-tier">Premium</div>
+          <h4>$<span class="price-num" data-monthly="49" data-annual="42">49</span><sup>/mo</sup></h4>
+          <span class="price-period">for scaling startups</span>
+          <p class="price-desc">Full analytics across every model your team ships.</p>
+          <ul class="feat-list">
+            <li>Full analytics &amp; insights</li>
+            <li>All major LLM providers</li>
+            <li>Custom alert routing</li>
+          </ul>
+          <button class="btn btn-primary btn-block pricing-cta">Choose Premium</button>
+        </div>
+        <div class="price-card">
+          <div class="price-tier">Enterprise</div>
+          <h4 style="font-size:26px;">Custom</h4>
+          <span class="price-period">for corporations</span>
+          <p class="price-desc">Dedicated infrastructure and compliance support.</p>
+          <ul class="feat-list">
+            <li>Enterprise security (SSO)</li>
+            <li>Dedicated manager</li>
+            <li>Unlimited retention</li>
+          </ul>
+          <button class="btn btn-block pricing-cta">Contact Sales</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS -->
+  <section id="testimonials">
+    <div class="container testi-wrap reveal">
+      <span class="testi-mark">&rdquo;</span>
+      <div id="testiQuote" class="testi-quote">TokenInfo paid for itself in the first 48 hours. Essential for any AI-first engineering team.</div>
+      <div id="testiAuthor" class="testi-author">— CTO, HYPERSCALE</div>
+      <div class="testi-dots" id="testiDots"></div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="cta-banner" id="signup">
+    <div class="container">
+      <div class="mark-row"><span></span></div>
+      <h2>Ready to optimize?</h2>
+      <p>Connect an API key in minutes. Credit card not required.</p>
+      <form class="cta-form" id="finalForm" novalidate>
+        <input type="email" id="finalEmail" placeholder="you@company.com" aria-label="Work email">
+        <button type="submit">Get Started Free</button>
+      </form>
+      <div class="cta-error" id="finalError" role="alert" style="display:none;"></div>
+      <div class="cta-success" id="finalSuccess" style="display:none;"><span class="mark">■</span> You're on the list — check your inbox to confirm.</div>
+    </div>
+  </section>
+
+</main>
+
+<footer id="faq">
+  <div class="container">
+    <div class="footer-top">
+      <div>
+        <a href="#top" class="logo"><span class="mark"></span>TokenInfo</a>
+        <p style="color:var(--ink-soft); font-size:13.5px; margin-top:14px; max-width:220px;">Precision oversight for AI infrastructure spend.</p>
+      </div>
+      <div class="footer-cols">
+        <div class="footer-col">
+          <h5>Product</h5>
+          <a href="#features">Features</a>
+          <a href="#dashboard">Dashboard</a>
+          <a href="#pricing">Pricing</a>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <a href="#">About</a>
+          <a href="#">Careers</a>
+          <a href="#">Contact</a>
+        </div>
+        <div class="footer-col">
+          <h5>Legal</h5>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">Security</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span class="footer-tag">CONNECT IN 65 SECONDS · NO CREDIT CARD REQUIRED</span>
+      <div class="footer-social">
+        <a href="#">X</a><a href="#">LinkedIn</a><a href="#">GitHub</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- SIGNUP MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+    <span class="eyebrow">Start free</span>
+    <h3 id="modalTitle">Create your account</h3>
+    <p class="desc">No credit card. Cancel anytime.</p>
+    <form class="modal-form" id="modalForm" novalidate>
+      <div class="field">
+        <label for="modalEmail">Work email</label>
+        <input type="email" id="modalEmail" placeholder="you@company.com">
+        <div class="field-error" id="modalEmailError">Enter a valid email address.</div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Start Free</button>
+    </form>
+    <div class="modal-success" id="modalSuccess">
+      <div class="mark"></div>
+      <h3>You're in.</h3>
+      <p class="desc">Check your inbox to verify and connect your first API key.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var WINE = '#4F46E5', INK = '#1A1A1A';
+  var chartsAvailable = typeof Chart !== 'undefined';
+  if(chartsAvailable){
+    Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+    Chart.defaults.color = "rgba(26,26,26,0.5)";
+  }
+
+  /* -------- nav scroll shadow -------- */
+  var navEl = document.getElementById('siteNav');
+  window.addEventListener('scroll', function(){
+    navEl.classList.toggle('scrolled', window.scrollY > 8);
+  });
+
+  /* -------- scroll reveal -------- */
+  var reveals = document.querySelectorAll('.reveal');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.14 });
+  reveals.forEach(function(el){ io.observe(el); });
+
+  /* -------- hero chart (draws in on load) -------- */
+  function genSeries(n, base, vol){
+    var arr = [], v = base;
+    for(var i=0;i<n;i++){ v += (Math.random()-0.45)*vol; v = Math.max(v, base*0.3); arr.push(Math.round(v)); }
+    return arr;
+  }
+  if(chartsAvailable){
+    var heroLabels = Array.from({length:24}, function(_,i){ return i; });
+    var heroData = genSeries(24, 40, 14);
+    var heroCtx = document.getElementById('heroChart').getContext('2d');
+    var heroChart = new Chart(heroCtx, {
+      type:'line',
+      data:{ labels: heroLabels, datasets:[{
+        data: heroData, borderColor: WINE, borderWidth:2, pointRadius:0, tension:0.35,
+        fill:true, backgroundColor:'rgba(107,31,42,0.06)'
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        animation:{ duration:1600, easing:'easeOutQuart' },
+        plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+        scales:{ x:{display:false}, y:{display:false} },
+        elements:{ point:{ hoverRadius:0 } }
+      }
+    });
+  }
+
+  /* -------- flagged prompts -------- */
+  var prompts = [
+    { name:'System context re-sent every turn', tag:'Redundant', save:'$312 / mo', tokens:'84,200', calls:'1,204', fix:'Cache system prompt' },
+    { name:'Full document re-pasted per follow-up', tag:'Oversized', save:'$228 / mo', tokens:'61,900', calls:'640', fix:'Use conversation memory' },
+    { name:'Duplicate few-shot examples', tag:'Repetitive', save:'$164 / mo', tokens:'40,500', calls:'980', fix:'Trim example set' },
+    { name:'Verbose error-handling retries', tag:'Redundant', save:'$97 / mo', tokens:'22,300', calls:'510', fix:'Add retry backoff cap' }
+  ];
+  var listEl = document.getElementById('promptList');
+  prompts.forEach(function(p, i){
+    var row = document.createElement('div');
+    row.className = 'prompt-row';
+    row.innerHTML =
+      '<button class="prompt-row-head" aria-expanded="false">'+
+        '<span class="prompt-idx">'+String(i+1).padStart(2,'0')+'</span>'+
+        '<span class="prompt-name">'+p.name+'</span>'+
+        '<span class="prompt-tag">'+p.tag+'</span>'+
+        '<span class="prompt-save">'+p.save+'</span>'+
+        '<span class="prompt-chevron">+</span>'+
+      '</button>'+
+      '<div class="prompt-detail"><div class="prompt-detail-inner">'+
+        '<div class="detail-block"><div class="stat-label">Tokens / mo</div><div class="val">'+p.tokens+'</div></div>'+
+        '<div class="detail-block"><div class="stat-label">Calls flagged</div><div class="val">'+p.calls+'</div></div>'+
+        '<div class="detail-block"><div class="stat-label">Suggested fix</div><div class="val">'+p.fix+'</div></div>'+
+      '</div></div>';
+    listEl.appendChild(row);
+    var head = row.querySelector('.prompt-row-head');
+    head.addEventListener('click', function(){
+      var isOpen = row.classList.contains('open');
+      listEl.querySelectorAll('.prompt-row.open').forEach(function(r){ r.classList.remove('open'); r.querySelector('.prompt-row-head').setAttribute('aria-expanded','false'); });
+      if(!isOpen){ row.classList.add('open'); head.setAttribute('aria-expanded','true'); }
+    });
+  });
+
+  /* -------- dashboard chart with legend toggle + tooltip -------- */
+  if(chartsAvailable){
+    var dashLabels = Array.from({length:14}, function(_,i){ return 'D'+(i+1); });
+    var series = {
+      'GPT-4o': { data: genSeries(14, 90, 20), color: WINE },
+      'Claude 3.5 Sonnet': { data: genSeries(14, 70, 18), color: INK },
+      'Gemini 1.5': { data: genSeries(14, 40, 12), color: '#a9765f' }
+    };
+    var dashDatasets = Object.keys(series).map(function(k){
+      return {
+        label:k, data: series[k].data, borderColor: series[k].color, backgroundColor: series[k].color,
+        borderWidth:2, pointRadius:2, pointHoverRadius:5, tension:0.3
+      };
+    });
+    var dashCtx = document.getElementById('dashChart').getContext('2d');
+    var dashChart = new Chart(dashCtx, {
+      type:'line',
+      data:{ labels: dashLabels, datasets: dashDatasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ display:false },
+          tooltip:{
+            backgroundColor:'#1A1A1A', titleFont:{family:"'IBM Plex Mono', monospace", size:11},
+            bodyFont:{family:"'IBM Plex Mono', monospace", size:12}, padding:10, cornerRadius:0,
+            displayColors:true
+          }
+        },
+        interaction:{ mode:'index', intersect:false },
+        scales:{
+          x:{ grid:{ color:'rgba(26,26,26,0.06)' }, ticks:{ font:{size:11} } },
+          y:{ grid:{ color:'rgba(26,26,26,0.06)' }, ticks:{ font:{size:11} } }
+        }
+      }
+    });
+    var legendWrap = document.getElementById('dashLegend');
+    dashDatasets.forEach(function(ds, idx){
+      var b = document.createElement('button');
+      b.className = 'legend-item';
+      b.innerHTML = '<span class="legend-dot" style="background:'+ds.borderColor+'"></span>'+ds.label;
+      b.addEventListener('click', function(){
+        var meta = dashChart.getDatasetMeta(idx);
+        meta.hidden = meta.hidden === null ? !dashChart.data.datasets[idx].hidden : !meta.hidden;
+        b.classList.toggle('off');
+        dashChart.update();
+      });
+      legendWrap.appendChild(b);
+    });
+  }
+
+  /* -------- pricing toggle -------- */
+  var billToggle = document.getElementById('billToggle');
+  var labelM = document.getElementById('labelMonthly'), labelA = document.getElementById('labelAnnual');
+  var priceNums = document.querySelectorAll('.price-num');
+  var annual = false;
+  billToggle.addEventListener('click', function(){
+    annual = !annual;
+    billToggle.classList.toggle('on', annual);
+    billToggle.setAttribute('aria-pressed', String(annual));
+    labelM.classList.toggle('active', !annual);
+    labelA.classList.toggle('active', annual);
+    priceNums.forEach(function(el){
+      el.textContent = annual ? el.dataset.annual : el.dataset.monthly;
+    });
+  });
+
+  /* -------- testimonials carousel -------- */
+  var testimonials = [
+    { quote:"TokenInfo paid for itself in the first 48 hours. Essential for any AI-first engineering team.", author:"— CTO, Hyperscale" },
+    { quote:"We cut our monthly LLM spend by 31% without changing a single line of product code.", author:"— VP Engineering, Northbeam" },
+    { quote:"The flagged-prompt list alone justified the subscription in week one.", author:"— Staff Engineer, Arc Infra" }
+  ];
+  var tQuote = document.getElementById('testiQuote'), tAuthor = document.getElementById('testiAuthor'), tDots = document.getElementById('testiDots');
+  var tIndex = 0;
+  testimonials.forEach(function(_, i){
+    var d = document.createElement('button');
+    d.className = 'active_check';
+    if(i===0) d.classList.add('active');
+    d.addEventListener('click', function(){ tIndex = i; renderTesti(); });
+    tDots.appendChild(d);
+  });
+  function renderTesti(){
+    tQuote.textContent = testimonials[tIndex].quote;
+    tAuthor.textContent = testimonials[tIndex].author;
+    Array.from(tDots.children).forEach(function(d, i){ d.classList.toggle('active', i===tIndex); });
+  }
+  setInterval(function(){ tIndex = (tIndex+1) % testimonials.length; renderTesti(); }, 6000);
+
+  /* -------- email validation helper -------- */
+  function validEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+
+  /* -------- modal -------- */
+  var overlay = document.getElementById('modalOverlay');
+  var modalForm = document.getElementById('modalForm');
+  var modalSuccess = document.getElementById('modalSuccess');
+  var modalEmail = document.getElementById('modalEmail');
+  var modalEmailError = document.getElementById('modalEmailError');
+
+  function openModal(){
+    overlay.classList.add('show');
+    modalForm.classList.remove('hide');
+    modalSuccess.classList.remove('show');
+    modalEmail.value = '';
+    modalEmail.classList.remove('error');
+    modalEmailError.classList.remove('show');
+    setTimeout(function(){ modalEmail.focus(); }, 50);
+  }
+  function closeModal(){ overlay.classList.remove('show'); }
+
+  document.getElementById('navCta').addEventListener('click', openModal);
+  document.getElementById('heroStart').addEventListener('click', openModal);
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) closeModal(); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeModal(); });
+
+  modalForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    var v = modalEmail.value.trim();
+    if(!validEmail(v)){
+      modalEmail.classList.add('error');
+      modalEmailError.classList.add('show');
+      return;
+    }
+    modalEmail.classList.remove('error');
+    modalEmailError.classList.remove('show');
+    modalForm.classList.add('hide');
+    modalSuccess.classList.add('show');
+  });
+
+  document.querySelectorAll('.pricing-cta').forEach(function(btn){
+    btn.addEventListener('click', openModal);
+  });
+
+  /* -------- final cta form -------- */
+  var finalForm = document.getElementById('finalForm');
+  var finalEmail = document.getElementById('finalEmail');
+  var finalError = document.getElementById('finalError');
+  var finalSuccess = document.getElementById('finalSuccess');
+  finalForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    var v = finalEmail.value.trim();
+    if(!validEmail(v)){
+      finalError.textContent = 'Enter a valid email address.';
+      finalError.style.display = 'block';
+      finalSuccess.style.display = 'none';
+      return;
+    }
+    finalError.style.display = 'none';
+    finalForm.style.display = 'none';
+    finalSuccess.style.display = 'block';
+  });
+
+})();
+</script>
+</body>
+</html>
